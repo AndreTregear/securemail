@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/db" },
+    { "path": "./packages/mailu-adapter" },
+    { "path": "./packages/audit" },
+    { "path": "./packages/queue" },
+    { "path": "./apps/control-api" },
+    { "path": "./workers/provisioner" },
+    { "path": "./workers/dns-verifier" }
+  ]
+}

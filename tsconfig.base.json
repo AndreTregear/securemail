@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@localhosters/db": ["packages/db/src/index.ts"],
+      "@localhosters/mailu-adapter": ["packages/mailu-adapter/src/index.ts"],
+      "@localhosters/audit": ["packages/audit/src/index.ts"],
+      "@localhosters/queue": ["packages/queue/src/index.ts"]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "mailu": {
+      "command": "node",
+      "args": ["/home/yaya/mail-stack/mcp-server.js"],
+      "env": {
+        "MAILU_ROOT": "/home/yaya/mail-stack"
+      }
+    }
+  }
+}

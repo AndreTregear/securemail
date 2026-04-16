@@ -1,0 +1,120 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - ./redis:/data
+    networks:
+      - mailu
+
+  front:
+    image: ghcr.io/mailu/nginx:${MAILU_VERSION:-2024.06.49}
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    ports:
+      - "${HTTP_BIND_HOST:-127.0.0.1}:${HTTP_PORT:-8080}:80"
+      - "${HTTPS_BIND_HOST:-127.0.0.1}:${HTTPS_PORT:-8443}:443"
+      - "${SMTP_PORT:-25}:25"
+      - "${SMTPS_PORT:-465}:465"
+      - "${SUBMISSION_PORT:-587}:587"
+      - "${IMAP_PORT:-143}:143"
+      - "${IMAPS_PORT:-993}:993"
+      - "${MANAGESIEVE_PORT:-4190}:4190"
+    volumes:
+      - ./certs:/certs
+      - ./overrides/nginx:/overrides:ro
+    networks:
+      - mailu
+      - webmail
+
+  admin:
+    image: ghcr.io/mailu/admin:${MAILU_VERSION:-2024.06.49}
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    depends_on:
+      - redis
+    volumes:
+      - ./data:/data
+      - ./dkim:/dkim
+    networks:
+      - mailu
+
+  imap:
+    image: ghcr.io/mailu/dovecot:${MAILU_VERSION:-2024.06.49}
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    depends_on:
+      - front
+    volumes:
+      - ./mail:/mail
+      - ./overrides/dovecot:/overrides:ro
+    networks:
+      - mailu
+
+  smtp:
+    image: ghcr.io/mailu/postfix:${MAILU_VERSION:-2024.06.49}
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    depends_on:
+      - front
+    volumes:
+      - ./mailqueue:/queue
+      - ./overrides/postfix:/overrides:ro
+    networks:
+      - mailu
+
+  oletools:
+    image: ghcr.io/mailu/oletools:${MAILU_VERSION:-2024.06.49}
+    hostname: oletools
+    restart: unless-stopped
+    networks:
+      - oletools
+
+  antispam:
+    image: ghcr.io/mailu/rspamd:${MAILU_VERSION:-2024.06.49}
+    hostname: antispam
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    depends_on:
+      - front
+      - redis
+      - oletools
+    volumes:
+      - ./filter:/var/lib/rspamd
+      - ./overrides/rspamd:/overrides:ro
+    networks:
+      - mailu
+      - oletools
+
+  webmail:
+    image: ghcr.io/mailu/webmail:${MAILU_VERSION:-2024.06.49}
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    depends_on:
+      - front
+    volumes:
+      - ./webmail:/data
+      - ./overrides/roundcube:/overrides:ro
+    networks:
+      - webmail
+
+networks:
+  mailu:
+    name: ${COMPOSE_PROJECT_NAME:-mailu}_internal
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${SUBNET:-172.31.254.0/24}
+  webmail:
+    name: ${COMPOSE_PROJECT_NAME:-mailu}_webmail
+    driver: bridge
+  oletools:
+    name: ${COMPOSE_PROJECT_NAME:-mailu}_oletools
+    driver: bridge
+    internal: true

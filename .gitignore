@@ -1,0 +1,17 @@
+.env
+certbot/
+certs/
+data/
+dkim/
+filter/
+mail/
+mailqueue/
+redis/
+secrets/
+webmail/
+bootstrap.generated
+node_modules/
+dist/
+coverage/
+.turbo/
+npm-debug.log*

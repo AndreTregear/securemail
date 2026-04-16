@@ -1,0 +1,20 @@
+{
+  "name": "@localhosters/dns-verifier-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@localhosters/db": "workspace:*",
+    "@localhosters/queue": "workspace:*",
+    "bullmq": "^5.70.1",
+    "dotenv": "^17.3.1",
+    "pino": "^10.3.1"
+  }
+}

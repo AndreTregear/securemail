@@ -1,0 +1,455 @@
+openapi: 3.1.0
+info:
+  title: Localhosters Mail Control Plane API
+  version: 0.1.0
+  description: |
+    Customer-facing and internal control plane for a multi-tenant, self-hosted mail platform.
+servers:
+  - url: https://api.localhosters.com
+tags:
+  - name: Tenants
+  - name: Domains
+  - name: Mailboxes
+  - name: Aliases
+  - name: Billing
+paths:
+  /v1/tenants:
+    post:
+      tags: [Tenants]
+      summary: Create a tenant
+      operationId: createTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [displayName, ownerEmail, planCode]
+              properties:
+                displayName:
+                  type: string
+                ownerEmail:
+                  type: string
+                  format: email
+                planCode:
+                  type: string
+      responses:
+        '201':
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+  /v1/tenants/{tenantId}:
+    get:
+      tags: [Tenants]
+      summary: Get tenant
+      operationId: getTenant
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Tenant details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+  /v1/tenants/{tenantId}/domains:
+    post:
+      tags: [Domains]
+      summary: Create a draft domain and issue ownership verification
+      operationId: createDomain
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domainName]
+              properties:
+                domainName:
+                  type: string
+                primaryMailboxLocalpart:
+                  type: string
+                  default: andre
+      responses:
+        '201':
+          description: Domain created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Domain'
+  /v1/tenants/{tenantId}/domains/{domainId}:
+    get:
+      tags: [Domains]
+      summary: Get domain details
+      operationId: getDomain
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '200':
+          description: Domain details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Domain'
+  /v1/tenants/{tenantId}/domains/{domainId}/verification/start:
+    post:
+      tags: [Domains]
+      summary: Reissue or return current TXT verification challenge
+      operationId: startDomainVerification
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '200':
+          description: Verification challenge
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainVerification'
+  /v1/tenants/{tenantId}/domains/{domainId}/verification/check:
+    post:
+      tags: [Domains]
+      summary: Check ownership TXT record
+      operationId: checkDomainVerification
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '200':
+          description: Verification status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Domain'
+  /v1/tenants/{tenantId}/domains/{domainId}/dns:
+    get:
+      tags: [Domains]
+      summary: Return required DNS records and observed propagation state
+      operationId: getDomainDns
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '200':
+          description: DNS record set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  domain:
+                    $ref: '#/components/schemas/Domain'
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DNSRecord'
+  /v1/tenants/{tenantId}/domains/{domainId}/dns/check:
+    post:
+      tags: [Domains]
+      summary: Trigger DNS propagation check
+      operationId: checkDomainDns
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '202':
+          description: Check queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /v1/tenants/{tenantId}/domains/{domainId}/activate:
+    post:
+      tags: [Domains]
+      summary: Activate domain after verification and DNS checks pass
+      operationId: activateDomain
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '202':
+          description: Activation queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /v1/tenants/{tenantId}/mailboxes:
+    post:
+      tags: [Mailboxes]
+      summary: Create a mailbox
+      operationId: createMailbox
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domainId, localpart, password]
+              properties:
+                domainId:
+                  type: string
+                  format: uuid
+                localpart:
+                  type: string
+                password:
+                  type: string
+                role:
+                  type: string
+                  enum: [primary, user, service]
+                  default: user
+                createDefaultAliases:
+                  type: boolean
+                  default: false
+      responses:
+        '202':
+          description: Mailbox creation queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /v1/tenants/{tenantId}/mailboxes/{mailboxId}:
+    get:
+      tags: [Mailboxes]
+      summary: Get mailbox
+      operationId: getMailbox
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/MailboxId'
+      responses:
+        '200':
+          description: Mailbox details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Mailbox'
+  /v1/tenants/{tenantId}/mailboxes/{mailboxId}/password:
+    post:
+      tags: [Mailboxes]
+      summary: Rotate mailbox password
+      operationId: rotateMailboxPassword
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/MailboxId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+      responses:
+        '202':
+          description: Password rotation queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /v1/tenants/{tenantId}/aliases:
+    post:
+      tags: [Aliases]
+      summary: Create an alias
+      operationId: createAlias
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domainId, sourceLocalpart, destinationEmail]
+              properties:
+                domainId:
+                  type: string
+                  format: uuid
+                sourceLocalpart:
+                  type: string
+                destinationEmail:
+                  type: string
+                  format: email
+      responses:
+        '202':
+          description: Alias creation queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+  /v1/tenants/{tenantId}/mail-config:
+    get:
+      tags: [Mailboxes]
+      summary: Get mail client configuration for the tenant
+      operationId: getMailConfig
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Client settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  smtpHost:
+                    type: string
+                  smtpPort:
+                    type: integer
+                  imapHost:
+                    type: string
+                  imapPort:
+                    type: integer
+                  webmailUrl:
+                    type: string
+                    format: uri
+  /v1/billing/webhooks/stripe:
+    post:
+      tags: [Billing]
+      summary: Receive Stripe webhooks
+      operationId: handleStripeWebhook
+      responses:
+        '200':
+          description: Webhook processed
+components:
+  parameters:
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DomainId:
+      name: domainId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MailboxId:
+      name: mailboxId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        displayName:
+          type: string
+        ownerEmail:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [trialing, active, past_due, suspended, cancelled]
+        planCode:
+          type: string
+    Domain:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        domainName:
+          type: string
+        status:
+          type: string
+          enum: [draft, verification_pending, verified, dns_pending, active, suspended, failed, deleted]
+        primaryMailHost:
+          type: string
+        verifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+        activatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    DomainVerification:
+      type: object
+      properties:
+        recordType:
+          type: string
+          enum: [TXT]
+        host:
+          type: string
+        value:
+          type: string
+        status:
+          type: string
+          enum: [pending, verified, expired]
+    DNSRecord:
+      type: object
+      properties:
+        type:
+          type: string
+        host:
+          type: string
+        value:
+          type: string
+        priority:
+          type: integer
+          nullable: true
+        ttl:
+          type: integer
+        required:
+          type: boolean
+        checkStatus:
+          type: string
+          enum: [pending, valid, invalid, missing]
+    Mailbox:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        domainId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [pending, active, suspended, password_reset_required, deleted]
+        role:
+          type: string
+          enum: [primary, user, service]
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, retrying, cancelled]
+        jobType:
+          type: string
+        resourceType:
+          type: string
+        resourceId:
+          type: string
+          format: uuid

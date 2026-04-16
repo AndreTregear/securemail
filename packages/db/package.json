@@ -1,0 +1,21 @@
+{
+  "name": "@localhosters/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "migrate": "tsx src/migrate.ts",
+    "seed": "tsx src/seed-plans.ts"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "pg": "^8.19.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.18.0"
+  }
+}

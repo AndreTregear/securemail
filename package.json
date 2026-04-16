@@ -1,0 +1,25 @@
+{
+  "name": "localhosters-mail-platform",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "workers/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "dev:control-api": "npm run dev --workspace @localhosters/control-api",
+    "dev:provisioner": "npm run dev --workspace @localhosters/provisioner-worker",
+    "dev:dns-verifier": "npm run dev --workspace @localhosters/dns-verifier-worker",
+    "db:migrate": "npm run migrate --workspace @localhosters/db",
+    "db:seed": "npm run seed --workspace @localhosters/db"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
