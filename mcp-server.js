@@ -6,6 +6,13 @@ const { execFileSync } = require("child_process");
 
 const ROOT = process.env.MAILU_ROOT || path.resolve(__dirname);
 
+class ValidationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
 const TOOLS = [
   {
     name: "mailu_status",
@@ -305,7 +312,13 @@ function handleTool(name, args) {
         command.push("--json");
       }
       if (Array.isArray(args.filters)) {
-        command.push(...args.filters);
+        const filterPattern = /^(domain|user|alias|relay|config)(\.[a-z_]+)*$/;
+        for (const filter of args.filters) {
+          if (typeof filter !== "string" || !filterPattern.test(filter)) {
+            throw new ValidationError(`Rejected filter: must match ${filterPattern}`);
+          }
+          command.push(filter);
+        }
       }
       return text(runCompose(command, 60000));
     }
@@ -348,11 +361,16 @@ function handleMessage(message) {
         const result = handleTool(params.name, params.arguments || {});
         send({ jsonrpc: "2.0", id, result: { content: [result] } });
       } catch (error) {
+        const errorId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        process.stderr.write(`[mcp-server] tool ${params.name} failed (${errorId}): ${error.stack || error.message}\n`);
+        const clientMessage = error instanceof ValidationError
+          ? `Invalid input: ${error.message}`
+          : `Tool '${params.name}' failed. Error id: ${errorId}. See server logs for details.`;
         send({
           jsonrpc: "2.0",
           id,
           result: {
-            content: [text(`Error: ${error.message}`)],
+            content: [text(clientMessage)],
             isError: true,
           },
         });

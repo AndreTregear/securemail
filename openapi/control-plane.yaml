@@ -73,7 +73,8 @@ paths:
                   type: string
                 primaryMailboxLocalpart:
                   type: string
-                  default: andre
+                  description: Localpart of the primary mailbox to provision for the domain (e.g. "owner"). Required when the onboarding template is applied.
+                  pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
       responses:
         '201':
           description: Domain created
