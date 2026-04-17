@@ -223,3 +223,111 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 DROP TRIGGER IF EXISTS set_updated_at_provisioning_jobs ON provisioning_jobs;
 CREATE TRIGGER set_updated_at_provisioning_jobs BEFORE UPDATE ON provisioning_jobs
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- audit_events is append-only. Revoke UPDATE/DELETE on the application role
+-- so a compromised app identity cannot rewrite history. Administrative
+-- superuser access is expected to be out-of-band and separately audited.
+CREATE OR REPLACE FUNCTION prevent_audit_mutation()
+RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'audit_events is append-only';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS audit_events_no_update ON audit_events;
+CREATE TRIGGER audit_events_no_update BEFORE UPDATE ON audit_events
+FOR EACH ROW EXECUTE FUNCTION prevent_audit_mutation();
+
+DROP TRIGGER IF EXISTS audit_events_no_delete ON audit_events;
+CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events
+FOR EACH ROW EXECUTE FUNCTION prevent_audit_mutation();
+
+-- Row-Level Security.
+--
+-- The API connects as role `app_tenant` and MUST execute the following at the
+-- start of every tenant-scoped transaction:
+--   SET LOCAL app.current_tenant_id = '<tenant uuid>';
+-- Internal workers and background jobs connect as `app_worker`, which bypasses
+-- RLS because they legitimately need cross-tenant reach (job scheduling,
+-- provider reconciliation, billing sweeps). `app_worker` must never be used
+-- to serve an authenticated HTTP request.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_tenant') THEN
+    CREATE ROLE app_tenant NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_worker') THEN
+    CREATE ROLE app_worker NOLOGIN BYPASSRLS;
+  END IF;
+END$$;
+
+CREATE OR REPLACE FUNCTION current_tenant_id()
+RETURNS UUID AS $$
+BEGIN
+  RETURN NULLIF(current_setting('app.current_tenant_id', true), '')::UUID;
+EXCEPTION WHEN others THEN
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+ALTER TABLE tenants              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE domains              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE domain_verifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE domain_dns_records   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE mailboxes            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE aliases              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subscriptions        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE provisioning_jobs    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_events         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE support_notes        ENABLE ROW LEVEL SECURITY;
+
+-- `tenants` is keyed by id, not tenant_id; policy matches id against the
+-- session variable directly.
+DROP POLICY IF EXISTS tenants_isolation ON tenants;
+CREATE POLICY tenants_isolation ON tenants
+  USING (id = current_tenant_id())
+  WITH CHECK (id = current_tenant_id());
+
+DO $$
+DECLARE
+  tbl TEXT;
+BEGIN
+  FOREACH tbl IN ARRAY ARRAY[
+    'domains', 'mailboxes', 'aliases', 'subscriptions',
+    'provisioning_jobs', 'audit_events', 'support_notes'
+  ] LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I_tenant_isolation ON %I', tbl, tbl);
+    EXECUTE format(
+      'CREATE POLICY %I_tenant_isolation ON %I '
+      'USING (tenant_id IS NOT DISTINCT FROM current_tenant_id()) '
+      'WITH CHECK (tenant_id IS NOT DISTINCT FROM current_tenant_id())',
+      tbl, tbl
+    );
+  END LOOP;
+END$$;
+
+-- domain_verifications and domain_dns_records are keyed by domain_id; reach
+-- back to the parent domain's tenant.
+DROP POLICY IF EXISTS domain_verifications_tenant_isolation ON domain_verifications;
+CREATE POLICY domain_verifications_tenant_isolation ON domain_verifications
+  USING (EXISTS (SELECT 1 FROM domains d WHERE d.id = domain_verifications.domain_id AND d.tenant_id = current_tenant_id()))
+  WITH CHECK (EXISTS (SELECT 1 FROM domains d WHERE d.id = domain_verifications.domain_id AND d.tenant_id = current_tenant_id()));
+
+DROP POLICY IF EXISTS domain_dns_records_tenant_isolation ON domain_dns_records;
+CREATE POLICY domain_dns_records_tenant_isolation ON domain_dns_records
+  USING (EXISTS (SELECT 1 FROM domains d WHERE d.id = domain_dns_records.domain_id AND d.tenant_id = current_tenant_id()))
+  WITH CHECK (EXISTS (SELECT 1 FROM domains d WHERE d.id = domain_dns_records.domain_id AND d.tenant_id = current_tenant_id()));
+
+-- Grants: app_tenant must not be able to mutate audit_events (the trigger
+-- blocks UPDATE/DELETE, but INSERT is permitted — the API inserts audit rows
+-- for its own tenant).
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+  tenants, domains, domain_verifications, domain_dns_records,
+  mailboxes, aliases, subscriptions, provisioning_jobs, support_notes
+TO app_tenant;
+GRANT SELECT, INSERT ON audit_events TO app_tenant;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+  tenants, domains, domain_verifications, domain_dns_records,
+  mailboxes, aliases, subscriptions, provisioning_jobs, support_notes, audit_events
+TO app_worker;

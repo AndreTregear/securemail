@@ -13,6 +13,17 @@ class ValidationError extends Error {
   }
 }
 
+const MAILU_SERVICES = new Set([
+  "redis",
+  "front",
+  "admin",
+  "imap",
+  "smtp",
+  "oletools",
+  "antispam",
+  "webmail",
+]);
+
 const TOOLS = [
   {
     name: "mailu_status",
@@ -228,9 +239,17 @@ function handleTool(name, args) {
       return text(runCompose(["ps"]));
 
     case "mailu_logs": {
-      const lines = String(args.lines || 100);
+      const requestedLines = Number(args.lines);
+      const lines = Number.isFinite(requestedLines) && requestedLines > 0
+        ? String(Math.min(Math.trunc(requestedLines), 5000))
+        : "100";
       const command = ["logs", "--tail", lines];
-      if (args.service) {
+      if (args.service !== undefined && args.service !== null && args.service !== "") {
+        if (typeof args.service !== "string" || !MAILU_SERVICES.has(args.service)) {
+          throw new ValidationError(
+            `Unknown Mailu service. Allowed: ${[...MAILU_SERVICES].join(", ")}`,
+          );
+        }
         command.push(args.service);
       }
       return text(runCompose(command, 60000));

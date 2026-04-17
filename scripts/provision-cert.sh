@@ -28,6 +28,11 @@ if [[ ! -f secrets/cloudflare.ini ]]; then
   exit 1
 fi
 
+if [[ -z "${CERTBOT_IMAGE_TAG:-}" || "${CERTBOT_IMAGE_TAG}" == "latest" ]]; then
+  echo "CERTBOT_IMAGE_TAG must be set to a specific version in .env (do not use 'latest')."
+  exit 1
+fi
+
 mkdir -p certbot/etc/letsencrypt certbot/var/lib/letsencrypt certs
 
 declare -a domains
@@ -47,7 +52,7 @@ docker run --rm \
   -v "${ROOT_DIR}/certbot/etc/letsencrypt:/etc/letsencrypt" \
   -v "${ROOT_DIR}/certbot/var/lib/letsencrypt:/var/lib/letsencrypt" \
   -v "${ROOT_DIR}/secrets/cloudflare.ini:/cloudflare.ini:ro" \
-  "certbot/dns-cloudflare:${CERTBOT_IMAGE_TAG:-latest}" \
+  "certbot/dns-cloudflare:${CERTBOT_IMAGE_TAG}" \
   certonly \
   --dns-cloudflare \
   --dns-cloudflare-credentials /cloudflare.ini \

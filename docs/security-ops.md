@@ -46,11 +46,31 @@ The platform should be secure by default, but honest about what it does and does
 
 ## Secrets Management
 
-- Mailu admin credentials stored in environment or secret manager, never in code
-- Stripe secrets in secret manager
-- backup keys encrypted and rotated
-- repository uses `sops` or equivalent for static encrypted secrets
-- no plaintext secrets in logs or audit event payloads
+Current state:
+
+- `.env` and `secrets/` are git-ignored; `.env.example` contains only
+  placeholder values with `replace-with-*` markers.
+- `scripts/bootstrap.sh` generates strong values for `SECRET_KEY`,
+  `API_TOKEN`, and `INITIAL_ADMIN_PW` at setup time and writes them into
+  the operator's `.env` file.
+- Runtime containers read credentials from that `.env` file via the
+  Compose `env_file:` directive.
+
+Required before production:
+
+- move long-lived secrets (Stripe API key, Cloudflare DNS token, admin
+  credentials) out of `.env` and into a secret manager (Docker Secrets,
+  HashiCorp Vault, or cloud-provider-native) mounted per-container.
+- define a rotation schedule and runbook for every long-lived secret.
+- never log secrets or include them in audit event payloads.
+- encrypted backups — the encryption key lives in the same secret manager
+  as runtime secrets and follows the same rotation cadence. Document who
+  holds the recovery key and how restores are rehearsed.
+
+The repository does not yet use `sops`. If encrypted-at-rest artifacts
+are committed in the future, decide between `sops` (KMS-backed) and
+`git-crypt` (symmetric) and land the `.sops.yaml` / `.gitattributes`
+config in the same commit so the posture is enforced, not documentary.
 
 ## Network Security
 
@@ -71,6 +91,54 @@ Host firewall rules:
 
 - deny all by default
 - explicit allow-list per role and port
+
+### Backend Transport Encryption
+
+The control-plane stack is not yet committed to `docker-compose.yml`.
+When Postgres and Redis are added, they MUST ship with TLS enabled on
+the wire, not plaintext over the Docker bridge network:
+
+- Postgres: start with `ssl=on`, mount a server cert/key, and require
+  `sslmode=require` (or stricter) in the control-api connection string.
+- Redis: use `--tls-port` with a server cert/key; the queue/cache
+  clients must connect via `rediss://`.
+- Reject `sslmode=disable` and plain `redis://` in non-development
+  configuration; the `bootstrap.sh` check should fail if either is
+  observed.
+
+Rationale: a single compromised container on the internal network must
+not be able to eavesdrop on control-plane queries, steal session state
+from Redis, or tamper with enqueued jobs.
+
+### Control Plane Web Controls (apps/control-api)
+
+The API must ship with the following middleware active by default.
+These requirements are load-bearing for H8 in
+`docs/security-review-2026-04-16.md`:
+
+- **CORS**: allow-list of one or more explicit origins read from
+  configuration. Reject `*`. `credentials: true` only when the origin
+  is on the allow-list.
+- **Security headers** on every response:
+  - `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
+  - `X-Content-Type-Options: nosniff`
+  - `X-Frame-Options: DENY` (admin surfaces are never framed)
+  - `Referrer-Policy: strict-origin-when-cross-origin`
+  - `Content-Security-Policy` set per-surface; the JSON API uses
+    `default-src 'none'; frame-ancestors 'none'`.
+- **Request limits**: hard-limit body size to 1 MiB at the gateway
+  (matches the OpenAPI contract). Reject oversized requests with 413
+  before they reach handlers.
+- **Rate limiting**: per-tenant (authenticated) and per-IP
+  (unauthenticated, e.g. the Stripe webhook) buckets. 100 rps
+  sustained / 300 burst per tenant, enforced at the gateway.
+- **Auth**: Bearer JWT verification on every endpoint unless the
+  OpenAPI spec overrides `security` (currently only the Stripe
+  webhook, which validates `Stripe-Signature` instead).
+- **Cookies**: none, if possible — the control plane is a pure JSON
+  API. If cookies are introduced (session proxy, CSRF double-submit,
+  etc.), they MUST set `Secure`, `HttpOnly`, and
+  `SameSite=Strict`/`Lax` depending on the flow.
 
 ## Host Selection Rules
 

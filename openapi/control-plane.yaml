@@ -4,8 +4,27 @@ info:
   version: 0.1.0
   description: |
     Customer-facing and internal control plane for a multi-tenant, self-hosted mail platform.
+
+    ## Authentication
+
+    All endpoints require a Bearer JWT issued by the superapp identity provider
+    unless a per-operation `security` override is present (e.g. the Stripe
+    webhook, which authenticates via the `Stripe-Signature` header).
+
+    ## Rate limits and request size
+
+    - Per-tenant rate limit: 100 requests/second sustained, 300 request burst.
+      Exceeding the limit returns `429 Too Many Requests` with a `Retry-After`
+      header. Limits apply to every authenticated endpoint and are enforced by
+      the API gateway, not just per-handler.
+    - Maximum request body size: 1 MiB. Larger payloads return
+      `413 Payload Too Large`.
+    - All string fields carry explicit `maxLength` constraints; violations
+      return `400 Bad Request`.
 servers:
   - url: https://api.localhosters.com
+security:
+  - BearerAuth: []
 tags:
   - name: Tenants
   - name: Domains
@@ -28,11 +47,16 @@ paths:
               properties:
                 displayName:
                   type: string
+                  minLength: 1
+                  maxLength: 200
                 ownerEmail:
                   type: string
                   format: email
+                  maxLength: 254
                 planCode:
                   type: string
+                  maxLength: 64
+                  pattern: '^[a-z0-9][a-z0-9_-]{0,63}$'
       responses:
         '201':
           description: Tenant created
@@ -71,6 +95,9 @@ paths:
               properties:
                 domainName:
                   type: string
+                  minLength: 4
+                  maxLength: 253
+                  pattern: '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$'
                 primaryMailboxLocalpart:
                   type: string
                   description: Localpart of the primary mailbox to provision for the domain (e.g. "owner"). Required when the onboarding template is applied.
@@ -199,8 +226,14 @@ paths:
                   format: uuid
                 localpart:
                   type: string
+                  minLength: 1
+                  maxLength: 64
+                  pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
                 password:
                   type: string
+                  minLength: 12
+                  maxLength: 256
+                  writeOnly: true
                 role:
                   type: string
                   enum: [primary, user, service]
@@ -248,6 +281,9 @@ paths:
               properties:
                 password:
                   type: string
+                  minLength: 12
+                  maxLength: 256
+                  writeOnly: true
       responses:
         '202':
           description: Password rotation queued
@@ -275,9 +311,13 @@ paths:
                   format: uuid
                 sourceLocalpart:
                   type: string
+                  minLength: 1
+                  maxLength: 64
+                  pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
                 destinationEmail:
                   type: string
                   format: email
+                  maxLength: 254
       responses:
         '202':
           description: Alias creation queued
@@ -315,11 +355,60 @@ paths:
     post:
       tags: [Billing]
       summary: Receive Stripe webhooks
+      description: |
+        Unauthenticated to the Bearer scheme. The handler MUST verify the
+        `Stripe-Signature` header using `stripe.webhooks.constructEvent()`
+        (or equivalent HMAC-SHA256 verification against the configured
+        webhook signing secret) before trusting the body. Unverified
+        requests must return `400 Bad Request` without side effects.
       operationId: handleStripeWebhook
+      security: []
+      parameters:
+        - in: header
+          name: Stripe-Signature
+          required: true
+          schema:
+            type: string
+            maxLength: 1024
+          description: Stripe webhook signature, format `t=<timestamp>,v1=<hmac>`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, type, data]
+              properties:
+                id:
+                  type: string
+                  maxLength: 128
+                type:
+                  type: string
+                  maxLength: 128
+                  description: Stripe event type, e.g. `invoice.paid`, `customer.subscription.deleted`.
+                created:
+                  type: integer
+                livemode:
+                  type: boolean
+                data:
+                  type: object
+                  description: Stripe event payload. Validated by the handler against the event type.
       responses:
         '200':
           description: Webhook processed
+        '400':
+          description: Missing or invalid Stripe signature
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Superapp-issued JWT. The control plane verifies the signature and
+        derives the caller's tenant context, operator roles, and scope from
+        claims. Tokens must be short-lived (<= 15 minutes) and scoped per
+        tenant unless an operator role grants cross-tenant access.
   parameters:
     TenantId:
       name: tenantId
