@@ -281,9 +281,9 @@ Fields:
 
 For first-run onboarding:
 
-- create one mailbox: `andre@domain`
-- create one alias: `info@domain -> andre@domain`
-- create one alias: `contact@domain -> andre@domain`
+- create one mailbox: `<primaryLocalpart>@domain` (supplied by the caller at domain creation)
+- create one alias: `info@domain -> <primaryLocalpart>@domain`
+- create one alias: `contact@domain -> <primaryLocalpart>@domain`
 
 This should be represented as a reusable template at the application layer, not hard-coded into SQL.
 
